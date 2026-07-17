@@ -1,0 +1,33 @@
+# LLMOps Studio Default Configuration Parameters
+
+app:
+  name: "LLMOps Studio"
+  version: "0.1.0"
+
+training:
+  default_hyperparameters:
+    learning_rate: 0.0002
+    batch_size: 4
+    num_train_epochs: 3
+    lora_r: 16
+    lora_alpha: 32
+    lora_dropout: 0.05
+    target_modules:
+      - "q_proj"
+      - "v_proj"
+
+evaluation:
+  default_metrics:
+    - "rouge"
+    - "bertscore"
+    - "exact_match"
+    - "latency"
+    - "throughput"
+    - "llm_as_a_judge"
+    - "cost_estimation"
+
+benchmarking:
+  default_hardware:
+    cuda_visible_devices: "0"
+    precision: "fp16"
+    max_tokens: 512

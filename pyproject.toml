@@ -1,0 +1,72 @@
+[project]
+name = "llmops-studio"
+version = "0.1.0"
+description = "A production-grade platform for LLM fine-tuning, evaluation, and registry management"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "LLMOps Studio Developers" }
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "streamlit>=1.35.0",
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.2.0",
+    "pyyaml>=6.0.1",
+    "fastapi>=0.111.0",
+]
+
+[tool.black]
+line-length = 100
+target-version = ['py310']
+include = '\.pyi?$'
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "A", "C4"]
+ignore = []
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q"
+testpaths = [
+    "tests",
+]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_unused_configs = true
+ignore_missing_imports = true
+exclude = [
+    "venv",
+    ".venv",
+    "tests"
+]
+
+[tool.coverage.run]
+source = ["backend"]
+branch = true
+omit = [
+    "*/__init__.py",
+    "tests/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 80
+
+[tool.pre_commit]
+# Configured via .pre-commit-config.yaml in workspace root.
+# Reserved placeholder configuration table for future local hooks parameters.
+enabled = false

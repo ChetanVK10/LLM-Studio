@@ -1,0 +1,50 @@
+# Python bytecode and build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Environments and Dependency caches
+.venv/
+venv/
+ENV/
+env/
+.pytest_cache/
+.ruff_cache/
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Project specific operational storage directories
+data/raw/*
+data/processed/*
+data/cache/*
+data/uploads/*
+!data/**/.gitkeep
+
+models/*
+!models/**/.gitkeep
+
+artifacts/checkpoints/*
+artifacts/evaluations/*
+artifacts/reports/*
+artifacts/benchmarks/*
+artifacts/exports/*
+!artifacts/**/.gitkeep
+
+logs/*
+!logs/**/.gitkeep
+
+# IDE settings
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp

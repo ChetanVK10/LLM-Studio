@@ -1,0 +1,86 @@
+/* LLMOps Studio Premium Interface Styling Override Sheet */
+
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500;700&display=swap');
+
+/* Global Typography Overrides */
+html, body, [class*="css"] {
+    font-family: 'Outfit', sans-serif;
+}
+
+code, pre {
+    font-family: 'JetBrains Mono', monospace;
+}
+
+/* Gradient Header Styling */
+.gradient-text {
+    background: linear-gradient(135deg, #A855F7 0%, #3B82F6 50%, #06B6D4 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    font-weight: 800;
+}
+
+.success-gradient-text {
+    background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    font-weight: 700;
+}
+
+.card-gradient-header {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #F3F4F6;
+    border-bottom: 2px solid #3B82F6;
+    padding-bottom: 8px;
+    margin-bottom: 16px;
+}
+
+/* Custom Card Container Styles */
+.custom-card {
+    background-color: #1F2937;
+    border: 1px solid #374151;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 16px;
+}
+
+.custom-card-title {
+    font-size: 1.1rem;
+    font-weight: 500;
+    color: #9CA3AF;
+    margin-bottom: 8px;
+}
+
+.custom-card-value {
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: #F9FAFB;
+}
+
+/* UI Alert badges styling */
+.badge-active {
+    background-color: rgba(59, 130, 246, 0.15);
+    color: #3B82F6;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.badge-success {
+    background-color: rgba(16, 185, 129, 0.15);
+    color: #10B981;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.badge-pending {
+    background-color: rgba(245, 158, 11, 0.15);
+    color: #F59E0B;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 500;
+}

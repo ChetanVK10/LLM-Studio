@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  studio-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: llmops-studio-app
+    ports:
+      - "8501:8501"
+    environment:
+      - APP_ENV=production
+      # Bind API keys from local environment variables on the host if set
+      - HUGGINGFACE_API_KEY=${HUGGINGFACE_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - ./data:/app/data
+      - ./artifacts:/app/artifacts
+      - ./logs:/app/logs
+      - ./configs:/app/configs

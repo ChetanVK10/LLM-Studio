@@ -1,0 +1,11 @@
+streamlit>=1.35.0
+pydantic>=2.7.0
+pydantic-settings>=2.2.0
+pyyaml>=6.0.1
+fastapi>=0.111.0
+uvicorn>=0.30.0
+
+# Development Tools
+pytest>=8.0.0
+ruff>=0.4.0
+black>=24.0.0
