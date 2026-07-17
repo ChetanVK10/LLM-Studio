@@ -30,6 +30,21 @@ class DatasetValidationError(DatasetError):
     pass
 
 
+class InvalidSplitRatioError(DatasetError):
+    """Raised when train/validation/test split ratios do not sum to 1.0 or are out of bounds."""
+    pass
+
+
+class DatasetLoaderError(DatasetError):
+    """Raised when parsing or reading dataset files encounters format or structural issues."""
+    pass
+
+
+class StorageError(LLMOpsStudioError):
+    """Raised when reading, writing, or deleting files in storage layer fails."""
+    pass
+
+
 class TrainingError(LLMOpsStudioError):
     """Base exception for training workflow failures."""
     pass

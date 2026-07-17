@@ -82,3 +82,20 @@ class DirectoryName(str, Enum):
     ARTIFACTS_REPORTS = "reports"
     ARTIFACTS_BENCHMARKS = "benchmarks"
     ARTIFACTS_EXPORTS = "exports"
+
+
+class DatasetLifecycleState(str, Enum):
+    """Representing the active step in a dataset's import lifecycle."""
+    UPLOADED = "uploaded"
+    VALIDATED = "validated"
+    PROFILED = "profiled"
+    SPLIT = "split"
+    REGISTERED = "registered"
+    READY = "ready"
+
+
+class ValidationSeverity(str, Enum):
+    """Categorized levels of dataset validation issues."""
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"

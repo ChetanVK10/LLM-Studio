@@ -4,13 +4,14 @@ Isolates third-party client integrations and API connectors from the core busine
 rules in the services layer.
 """
 
-from backend.integrations.huggingface import HuggingFaceIntegration
+from backend.integrations.huggingface import HuggingFaceIntegration, HuggingFaceDatasetIngestor
 from backend.integrations.wandb import WandbIntegration
 from backend.integrations.colab import ColabIntegration
 from backend.integrations.local_storage import LocalStorageIntegration
 
 __all__ = [
     "HuggingFaceIntegration",
+    "HuggingFaceDatasetIngestor",
     "WandbIntegration",
     "ColabIntegration",
     "LocalStorageIntegration",

@@ -52,3 +52,50 @@ class HuggingFaceIntegration:
             "repo_id": repo_id,
             "status": "success"
         }
+
+
+class HuggingFaceDatasetIngestor:
+    """Lightweight ingestion layer representing Hugging Face Hub dataset integrations."""
+
+    def fetch_dataset(self, repo_id: str, split: str = "train") -> bytes:
+        """Simulates downloading dataset splits from Hugging Face Hub and returns JSON bytes.
+
+        Args:
+            repo_id: Hugging Face Repository identifier (e.g. 'tatsu-lab/alpaca').
+            split: Segment slice to pull.
+
+        Returns:
+            JSON formatted bytes content.
+        """
+        logger.info(f"HF Ingestor: Mocking dataset fetch from Hub: '{repo_id}' (split: '{split}')")
+        
+        # High quality mock records for fine-tuning previews and metrics
+        mock_data = [
+            {
+                "instruction": f"Design an algorithmic workflow to train models. (Source: HF - {repo_id})",
+                "input": "",
+                "output": "An algorithmic workflow starts with ingestion, followed by validation..."
+            },
+            {
+                "instruction": "Convert the following temperature from Celsius to Fahrenheit.",
+                "input": "Temperature: 25 Celsius",
+                "output": "25 Celsius is equal to 77 Fahrenheit."
+            },
+            {
+                "instruction": "List three primary colors.",
+                "input": "",
+                "output": "The three primary colors are red, yellow, and blue."
+            },
+            {
+                "instruction": "Identify the odd one out in this list.",
+                "input": "List: Apple, Banana, Potato, Orange",
+                "output": "Potato is the odd one out because it is a vegetable, whereas the others are fruits."
+            },
+            {
+                "instruction": "Summarize the concept of gravity.",
+                "input": "",
+                "output": "Gravity is the fundamental force by which physical bodies attract each other."
+            }
+        ]
+        import json
+        return json.dumps(mock_data).encode("utf-8")
