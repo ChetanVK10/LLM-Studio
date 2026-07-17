@@ -1,75 +1,174 @@
 """LLMOps Studio Evaluation Page.
 
-Runs evaluation suites, presents ROUGE, BERTScore, Exact Match, judge scores, and resource stats.
+Runs evaluation suites, presents ROUGE, BLEU, classification matrices,
+and comparative leaderboards.
 """
 
+import json
+import uuid
+from datetime import datetime
+
+import pandas as pd
 import streamlit as st
 
-from frontend.components.ui import render_header, render_future_phase_box
 from backend.core.config import get_settings
+from backend.core.constants import DatasetLifecycleState
+from backend.core.dependencies import get_dataset_service, get_evaluation_service, get_storage_manager, get_training_service
+from backend.core.exceptions import EvaluationError
+from backend.schemas.evaluation import EvaluationConfig, TaskType
+from frontend.components.ui import render_header, render_metric_card
 
 settings = get_settings()
-from backend.core.dependencies import get_evaluation_service
 
 # 1. Config
 st.set_page_config(page_title="Evaluation - LLMOps Studio", layout="wide")
 
-# Styling
+# Apply custom styling
 with open(settings.workspace_root / "frontend" / "styles" / "main.css", "r", encoding="utf-8") as f:
     st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
 # 2. Header
-render_header("Model Evaluation", "Evaluate generation quality, system latencies, judge scores, and compute cost profiles")
+render_header("Model Evaluation", "Evaluate generation quality, classification performance, and rank checkpoints on leaderboards")
 
-# 3. Retrieve evaluation runs from services
 eval_service = get_evaluation_service()
-runs = eval_service.list_evaluation_runs()
+training_service = get_training_service()
+dataset_service = get_dataset_service()
+storage_manager = get_storage_manager()
 
-# 4. Display evaluation histories
-st.subheader("Completed Evaluation Runs")
-if not runs:
-    st.info("No evaluations run logs cataloged in database registry yet.")
-else:
-    eval_table = []
-    for r in runs:
-        eval_table.append({
-            "Eval ID": r.eval_id,
-            "Model Under Test": r.model_name,
-            "Target Dataset": r.dataset_name,
-            "ROUGE-L": f"{r.rouge_scores.get('rougeL', 0.0):.4f}",
-            "BERTScore F1": f"{r.bertscore:.4f}",
-            "Exact Match": f"{r.exact_match:.2%}",
-            "Avg Latency": f"{r.latency_ms:.1f} ms",
-            "Throughput": f"{r.throughput_tokens_per_sec:.1f} tok/s",
-            "LLM Judge Score": f"{r.llm_judge_score:.1f} / 5.0",
-            "Estimated Cost": f"${r.cost_estimation_usd:.3f}"
-        })
-    st.table(eval_table)
+# Load registries
+checkpoints = training_service.list_checkpoints()
+datasets = dataset_service.list_datasets()
+ready_datasets = [ds for ds in datasets if ds.lifecycle_state == DatasetLifecycleState.READY]
 
-st.write("")
+tab1, tab2, tab3 = st.tabs(["⚙️ Run Evaluation", "📈 Results Grid", "🏆 Benchmark Leaderboard"])
 
-# 5. Evaluate parameters panels
-st.subheader("Configure New Evaluation Task")
-col1, col2 = st.columns(2)
-with col1:
-    st.selectbox("Select Model to Evaluate", ["LLaMA-3-8B-QLoRA-Custom"])
-    st.selectbox("Select Evaluation Dataset", ["alpaca-cleaned-1k"])
-with col2:
-    st.multiselect(
-        "Select Scoring Methods",
-        options=["ROUGE", "BERTScore", "Exact Match", "LLM-as-a-Judge", "Cost & Performance Benchmarking"],
-        default=["ROUGE", "BERTScore", "Exact Match", "LLM-as-a-Judge", "Cost & Performance Benchmarking"]
-    )
+with tab1:
+    st.subheader("Launch New Model Evaluation")
+    
+    if not checkpoints:
+        st.warning(
+            "⚠️ No model checkpoints are registered. Please fine-tune a model first on "
+            "the [Fine-Tuning](training) page."
+        )
+    elif not ready_datasets:
+        st.warning(
+            "⚠️ No datasets are READY. Please process a dataset first on "
+            "the [Dataset Management](datasets) page."
+        )
+    else:
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("#### 1. Target Model & Dataset")
+            checkpoint_options = {f"{ck.model_name} ({ck.checkpoint_id[:8]})": ck.checkpoint_id for ck in checkpoints}
+            selected_model_label = st.selectbox("Select model checkpoint", list(checkpoint_options.keys()))
+            selected_model_id = checkpoint_options[selected_model_label]
 
-st.button("Launch Evaluation Suite", disabled=True)
+            dataset_options = {f"{ds.dataset_name} ({ds.dataset_id[:8]})": ds.dataset_id for ds in ready_datasets}
+            selected_ds_label = st.selectbox("Select evaluation dataset", list(dataset_options.keys()))
+            selected_ds_id = dataset_options[selected_ds_label]
+            
+            task_type = st.radio(
+                "Task Category Type",
+                options=[TaskType.GENERATION, TaskType.CLASSIFICATION],
+                format_func=lambda x: x.value.title()
+            )
 
-st.write("")
+        with col2:
+            st.markdown("#### 2. Inference Parameters")
+            max_new_tokens = st.number_input("Max New Tokens", min_value=1, value=128, step=32)
+            temperature = st.slider("Temperature", min_value=0.0, max_value=2.0, value=0.0, step=0.1)
+            top_p = st.slider("Top-p Sampling", min_value=0.0, max_value=1.0, value=1.0, step=0.05)
+            batch_size = st.number_input("Batch Size", min_value=1, value=4, step=1)
+            seed = st.number_input("Random Seed", value=42)
 
-# 6. Future roadmap integration
-render_future_phase_box(
-    package_name="backend/evaluation/",
-    description="This view links with backend/services/evaluation_service.py. "
-                "In subsequent phases, launching evaluations will invoke ModelEvaluator "
-                "to calculate generation scores, run system prompts through GPT-4/Claude LLM Judge, "
-                "profile latency statistics, and write results to artifacts/evaluations/."
-)
+        if st.button("Start Pipeline Evaluation"):
+            eval_id = f"eval-{uuid.uuid4().hex[:12]}"
+            config = EvaluationConfig(
+                evaluation_id=eval_id,
+                model_id=selected_model_id,
+                dataset_id=selected_ds_id,
+                task_type=task_type,
+                batch_size=batch_size,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                random_seed=seed
+            )
+            
+            try:
+                with st.spinner("Processing inferences and calculating scores..."):
+                    result = eval_service.run_evaluation(config)
+                st.success(f"✓ Evaluation completed! ID: `{result.evaluation_id}`")
+                
+                # Show scores cards immediately
+                st.markdown("##### Scores Output:")
+                m_cols = st.columns(4)
+                idx = 0
+                for m, val in result.metrics.model_dump().items():
+                    if val is not None:
+                        with m_cols[idx % 4]:
+                            render_metric_card(m.upper(), f"{val:.4f}", "Computed score")
+                        idx += 1
+            except EvaluationError as ee:
+                st.error(f"❌ Evaluation Failure: {ee}")
+            except Exception as e:
+                st.error(f"❌ System error during pipeline evaluation: {e}")
+
+with tab2:
+    st.subheader("Evaluation Results Directory")
+    evaluations = eval_service.list_evaluations()
+    
+    if not evaluations:
+        st.info("No evaluations records stored in registry yet.")
+    else:
+        # Select evaluation run
+        eval_options = {f"{e.evaluation_id} ({e.created_at.strftime('%Y-%m-%d %H:%M')})": e.evaluation_id for e in evaluations}
+        selected_eval_label = st.selectbox("Select evaluation run", list(eval_options.keys()))
+        selected_eval_id = eval_options[selected_eval_label]
+        
+        result = eval_service.get_evaluation(selected_eval_id)
+        if result:
+            st.markdown("#### Evaluation Metric Highlights")
+            m_cols = st.columns(4)
+            idx = 0
+            for m, val in result.metrics.model_dump().items():
+                if val is not None:
+                    with m_cols[idx % 4]:
+                        render_metric_card(m.upper(), f"{val:.4f}", "Computed score")
+                    idx += 1
+            
+            st.write("")
+            st.markdown("#### Full Summary Report")
+            report_md = eval_service.get_report_markdown(selected_eval_id)
+            st.markdown(report_md)
+            
+            # Download button
+            st.download_button(
+                "📥 Download Summary Report (MD)",
+                data=report_md,
+                file_name=f"eval_report_{selected_eval_id}.md",
+                mime="text/markdown"
+            )
+
+with tab3:
+    st.subheader("Benchmarking Leaderboard")
+    
+    if not ready_datasets:
+        st.info("Please register and process datasets to evaluate models.")
+    else:
+        dataset_options = {f"{ds.dataset_name} ({ds.dataset_id[:8]})": ds.dataset_id for ds in ready_datasets}
+        selected_ds_label = st.selectbox("Select dataset for leaderboard", list(dataset_options.keys()))
+        selected_ds_id = dataset_options[selected_ds_label]
+        
+        leaderboard = eval_service.get_leaderboard(selected_ds_id)
+        
+        if not leaderboard:
+            st.info("No leaderboard entries registered for this dataset yet. Run evaluations to compile comparisons.")
+        else:
+            df_leaderboard = pd.DataFrame(leaderboard)
+            st.dataframe(df_leaderboard, use_container_width=True, hide_index=True)
+            
+            # Draw st.bar_chart of scores comparison
+            st.markdown("##### Visual Performance Comparison")
+            chart_df = df_leaderboard[["model_name", "metric_value"]].set_index("model_name")
+            st.bar_chart(chart_df)

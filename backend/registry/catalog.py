@@ -7,8 +7,9 @@ training job logs, and status audits.
 import json
 import logging
 import sqlite3
+from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from backend.schemas.registry import RegistryEntry
 from backend.schemas.training import TrainingJobStatus
@@ -61,6 +62,31 @@ class SQLiteModelRegistry:
                     state TEXT NOT NULL,
                     created_at TEXT NOT NULL,
                     status_json TEXT NOT NULL
+                )
+            """)
+            # Evaluation results table
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS evaluation_results (
+                    evaluation_id TEXT PRIMARY KEY,
+                    model_id TEXT NOT NULL,
+                    checkpoint_id TEXT NOT NULL,
+                    dataset_id TEXT NOT NULL,
+                    task_type TEXT NOT NULL,
+                    metrics TEXT NOT NULL,
+                    runtime_seconds REAL NOT NULL,
+                    report_path TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+            """)
+            # Benchmark aggregated leaderboard results
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS benchmark_results (
+                    benchmark_id TEXT PRIMARY KEY,
+                    dataset_id TEXT NOT NULL,
+                    model_id TEXT NOT NULL,
+                    metric_name TEXT NOT NULL,
+                    metric_value REAL NOT NULL,
+                    evaluated_at TEXT NOT NULL
                 )
             """)
             conn.commit()
@@ -214,6 +240,150 @@ class SQLiteModelRegistry:
                 except Exception as e:
                     logger.error(f"Registry: Skipping corrupt training job log: {e}")
         return jobs
+
+    # --- Evaluation & Benchmarking Methods ---
+
+    def save_evaluation(self, result: Any) -> None:
+        """Saves an evaluation result to the database.
+
+        Args:
+            result: EvaluationResult object to save.
+        """
+        metrics_serialized = result.metrics.model_dump_json()
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO evaluation_results
+                (evaluation_id, model_id, checkpoint_id, dataset_id, task_type, metrics, runtime_seconds, report_path, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    result.evaluation_id,
+                    result.model_id,
+                    result.model_id,  # checkpoint_id mapped to model_id
+                    result.dataset_id,
+                    result.task_type.value,
+                    metrics_serialized,
+                    result.runtime_seconds,
+                    result.report_path,
+                    result.created_at.isoformat()
+                )
+            )
+            conn.commit()
+
+    def get_evaluation(self, evaluation_id: str) -> Optional[Any]:
+        """Fetches evaluation results matching ID.
+
+        Args:
+            evaluation_id: Target evaluation key identifier.
+
+        Returns:
+            EvaluationResult Pydantic schema or None.
+        """
+        from backend.schemas.evaluation import EvaluationResult, MetricSummary, TaskType
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM evaluation_results WHERE evaluation_id = ?",
+                (evaluation_id,)
+            ).fetchone()
+            if row:
+                try:
+                    metrics_dict = json.loads(row["metrics"])
+                    return EvaluationResult(
+                        evaluation_id=row["evaluation_id"],
+                        model_id=row["model_id"],
+                        dataset_id=row["dataset_id"],
+                        task_type=TaskType(row["task_type"]),
+                        metrics=MetricSummary(**metrics_dict),
+                        runtime_seconds=row["runtime_seconds"],
+                        report_path=row["report_path"],
+                        created_at=datetime.fromisoformat(row["created_at"])
+                    )
+                except Exception as e:
+                    logger.error(f"Registry: Failed to deserialize evaluation entry: {e}")
+            return None
+
+    def list_evaluations(self) -> List[Any]:
+        """Lists all registered evaluations.
+
+        Returns:
+            List of EvaluationResult.
+        """
+        from backend.schemas.evaluation import EvaluationResult, MetricSummary, TaskType
+        results = []
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM evaluation_results ORDER BY created_at DESC"
+            ).fetchall()
+            for row in rows:
+                try:
+                    metrics_dict = json.loads(row["metrics"])
+                    results.append(
+                        EvaluationResult(
+                            evaluation_id=row["evaluation_id"],
+                            model_id=row["model_id"],
+                            dataset_id=row["dataset_id"],
+                            task_type=TaskType(row["task_type"]),
+                            metrics=MetricSummary(**metrics_dict),
+                            runtime_seconds=row["runtime_seconds"],
+                            report_path=row["report_path"],
+                            created_at=datetime.fromisoformat(row["created_at"])
+                        )
+                    )
+                except Exception as e:
+                    logger.error(f"Registry: Skipping corrupt evaluation row: {e}")
+        return results
+
+    def save_benchmark_entry(
+        self,
+        benchmark_id: str,
+        dataset_id: str,
+        model_id: str,
+        metric_name: str,
+        metric_value: float
+    ) -> None:
+        """Saves a benchmark metric record in the leaderboard registry database.
+
+        Args:
+            benchmark_id: Unique benchmark run identifier.
+            dataset_id: Target dataset evaluated.
+            model_id: Evaluated fine-tuned model ID.
+            metric_name: Evaluated metric parameter name (e.g. 'bleu').
+            metric_value: Primary metric score.
+        """
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO benchmark_results
+                (benchmark_id, dataset_id, model_id, metric_name, metric_value, evaluated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    benchmark_id,
+                    dataset_id,
+                    model_id,
+                    metric_name,
+                    metric_value,
+                    datetime.utcnow().isoformat()
+                )
+            )
+            conn.commit()
+
+    def get_leaderboard_entries(self, dataset_id: str) -> List[dict]:
+        """Lists leaderboard comparisons metrics for all models evaluated on a specific dataset.
+
+        Args:
+            dataset_id: Target dataset identifier.
+
+        Returns:
+            List of dictionaries matching columns of benchmark_results.
+        """
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM benchmark_results WHERE dataset_id = ? ORDER BY metric_value DESC",
+                (dataset_id,)
+            ).fetchall()
+            return [dict(r) for r in rows]
 
 
 class ModelCatalog:

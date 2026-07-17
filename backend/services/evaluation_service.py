@@ -1,67 +1,108 @@
-"""Evaluation Orchestration Service.
+"""Evaluation and Leaderboard Service.
 
-Coordinates evaluation calculations (ROUGE, BERTScore, LLM Judge, Cost, etc.) on fine-tuned checkpoints.
+Exposes interfaces to execute evaluation pipeline runs, query historical reports,
+and retrieve aggregated leaderboard ranks.
 """
 
+import json
 import logging
-from typing import List
+from typing import Any, Dict, List, Optional
 
-from backend.schemas.evaluation import EvaluationResult
+from backend.evaluation.benchmark import BenchmarkEngine
+from backend.evaluation.pipeline import EvaluationPipeline
+from backend.evaluation.report import ReportGenerator
+from backend.schemas.evaluation import EvaluationConfig, EvaluationResult
 
-logger = logging.getLogger("evaluation")
+logger = logging.getLogger("app")
 
 
 class EvaluationService:
-    """Orchestrates model evaluation pipelines over benchmark sets."""
+    """Orchestrates model evaluation pipelines, leaderboard updates, and Markdown reports generation."""
 
-    def __init__(self) -> None:
-        """Initializes the evaluation service instance."""
-        pass
-
-    def evaluate_model(self, model_name: str, dataset_name: str) -> EvaluationResult:
-        """Invokes evaluation metrics generators over test sets.
+    def __init__(
+        self,
+        pipeline: EvaluationPipeline,
+        benchmark: BenchmarkEngine,
+        model_registry: Any,
+        storage_manager: Any
+    ) -> None:
+        """Initializes service.
 
         Args:
-            model_name: Identifier of the candidate model adapters.
-            dataset_name: Target dataset for benchmarking.
+            pipeline: Pipeline run executor.
+            benchmark: Aggregator of comparative leaderboards.
+            model_registry: Checkpoint catalog database catalog.
+            storage_manager: Local filesystem storage helper.
+        """
+        self.pipeline = pipeline
+        self.benchmark = benchmark
+        self.model_registry = model_registry
+        self.storage_manager = storage_manager
+
+    def run_evaluation(self, config: EvaluationConfig) -> EvaluationResult:
+        """Launches the validation checks, inference loop, and registers results.
+
+        Args:
+            config: Job configuration settings.
 
         Returns:
-            EvaluationResult detailing computed scores and resources consumed.
+            EvaluationResult summary dataset.
         """
-        logger.info(
-            f"Invoking evaluation matrix for model '{model_name}' on dataset '{dataset_name}'"
-        )
-        return EvaluationResult(
-            eval_id="eval_run_001",
-            model_name=model_name,
-            dataset_name=dataset_name,
-            rouge_scores={"rouge1": 0.485, "rouge2": 0.221, "rougeL": 0.412},
-            bertscore=0.892,
-            exact_match=0.15,
-            latency_ms=125.4,
-            throughput_tokens_per_sec=32.5,
-            llm_judge_score=4.2,
-            cost_estimation_usd=0.08
-        )
+        logger.info(f"EvaluationService: Starting evaluation run '{config.evaluation_id}'")
+        return self.pipeline.run_evaluation(config)
 
-    def list_evaluation_runs(self) -> List[EvaluationResult]:
-        """Queries computed evaluation runs catalogs.
+    def get_evaluation(self, evaluation_id: str) -> Optional[EvaluationResult]:
+        """Queries database for evaluation results records.
+
+        Args:
+            evaluation_id: Unique evaluation identifier.
 
         Returns:
-            List of EvaluationResult records.
+            EvaluationResult if located, None otherwise.
         """
-        logger.info("Querying historical model evaluations list")
-        return [
-            EvaluationResult(
-                eval_id="eval_run_001",
-                model_name="LLaMA-3-8B-QLoRA-Custom",
-                dataset_name="alpaca-cleaned-1k",
-                rouge_scores={"rouge1": 0.485, "rouge2": 0.221, "rougeL": 0.412},
-                bertscore=0.892,
-                exact_match=0.15,
-                latency_ms=125.4,
-                throughput_tokens_per_sec=32.5,
-                llm_judge_score=4.2,
-                cost_estimation_usd=0.08
-            )
-        ]
+        return self.model_registry.get_evaluation(evaluation_id)
+
+    def list_evaluations(self) -> List[EvaluationResult]:
+        """Queries list of all historical evaluation reports.
+
+        Returns:
+            List of EvaluationResult.
+        """
+        return self.model_registry.list_evaluations()
+
+    def get_leaderboard(self, dataset_id: str) -> List[Dict[str, Any]]:
+        """Compiles metric performance leaderboards comparing models on a dataset.
+
+        Args:
+            dataset_id: Target dataset registry key ID.
+
+        Returns:
+            Aggregated rankings list.
+        """
+        return self.benchmark.get_leaderboard(dataset_id)
+
+    def get_report_markdown(self, evaluation_id: str) -> str:
+        """Compiles details from report.json and generates Markdown.
+
+        Args:
+            evaluation_id: Target evaluation runs.
+
+        Returns:
+            String containing formatted Markdown text.
+        """
+        report_json_path = f"artifacts/reports/{evaluation_id}/report.json"
+        if not self.storage_manager.exists(report_json_path):
+            return f"Error: Unable to locate report output files for evaluation ID `{evaluation_id}`."
+
+        try:
+            raw_data = self.storage_manager.read_file(report_json_path)
+            data = json.loads(raw_data.decode("utf-8"))
+            
+            result = self.get_evaluation(evaluation_id)
+            if not result:
+                return "Error: Evaluation record not found in database registry catalog."
+
+            return ReportGenerator.generate_markdown_report(result, data.get("samples", []))
+        except Exception as e:
+            logger.error(f"EvaluationService: Failed to compile Markdown report: {e}")
+            return f"Error: Failed to parse report files: {e}"

@@ -108,3 +108,9 @@ class ModelNameConflictError(RegistryError):
 class ExperimentTrackingError(LLMOpsStudioError):
     """Raised when metrics loggers or experiment run lifecycles hit inconsistent states."""
     pass
+
+
+class EvaluationError(LLMOpsStudioError):
+    """Raised when evaluation pipelines encounter validation or execution failures."""
+    pass
+

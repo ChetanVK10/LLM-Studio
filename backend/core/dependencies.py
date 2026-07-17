@@ -30,8 +30,7 @@ _dataset_repository = None
 _dataset_service = None
 _model_registry = None
 _training_service = None
-
-_evaluation_service = EvaluationService()
+_evaluation_service = None
 _benchmark_service = BenchmarkService()
 _registry_service = RegistryService()
 _experiment_tracker = ExperimentTracker()
@@ -123,6 +122,30 @@ def get_training_service() -> TrainingService:
 
 def get_evaluation_service() -> EvaluationService:
     """Returns an instance of the EvaluationService."""
+    global _evaluation_service
+    if _evaluation_service is None:
+        storage = get_storage_manager()
+        dataset_service = get_dataset_service()
+        registry = get_model_registry()
+        
+        from backend.evaluation.pipeline import EvaluationPipeline
+        from backend.evaluation.benchmark import BenchmarkEngine
+        
+        pipeline = EvaluationPipeline(
+            storage_manager=storage,
+            dataset_service=dataset_service,
+            model_registry=registry
+        )
+        
+        benchmark = BenchmarkEngine(model_registry=registry)
+        
+        from backend.services.evaluation_service import EvaluationService
+        _evaluation_service = EvaluationService(
+            pipeline=pipeline,
+            benchmark=benchmark,
+            model_registry=registry,
+            storage_manager=storage
+        )
     return _evaluation_service
 
 
