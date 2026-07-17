@@ -21,12 +21,16 @@ from backend.services.registry_service import RegistryService
 from backend.services.training_service import TrainingService
 from backend.storage.local_storage import LocalStorage
 
+from backend.registry.catalog import SQLiteModelRegistry
+from backend.training.runner import TrainingRunner
+
 # Foundational singletons (lazy-initialized where dependencies are required)
 _storage_manager = None
 _dataset_repository = None
 _dataset_service = None
+_model_registry = None
+_training_service = None
 
-_training_service = TrainingService()
 _evaluation_service = EvaluationService()
 _benchmark_service = BenchmarkService()
 _registry_service = RegistryService()
@@ -89,8 +93,31 @@ def get_dataset_service() -> DatasetService:
     return _dataset_service
 
 
+def get_model_registry() -> SQLiteModelRegistry:
+    """Provides the SQLiteModelRegistry catalog singleton."""
+    global _model_registry
+    if _model_registry is None:
+        settings = get_settings()
+        db_path = settings.workspace_root / "data" / "models.db"
+        _model_registry = SQLiteModelRegistry(db_path)
+    return _model_registry
+
+
 def get_training_service() -> TrainingService:
     """Returns an instance of the TrainingService."""
+    global _training_service
+    if _training_service is None:
+        storage = get_storage_manager()
+        dataset_service = get_dataset_service()
+        registry = get_model_registry()
+        
+        runner = TrainingRunner(
+            storage_manager=storage,
+            dataset_service=dataset_service,
+            model_registry=registry
+        )
+        
+        _training_service = TrainingService(runner=runner, registry=registry)
     return _training_service
 
 
