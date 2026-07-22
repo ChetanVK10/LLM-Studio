@@ -1,0 +1,11 @@
+{
+  "cuda_available": false,
+  "device_count": 0,
+  "timestamp": "2026-07-18T05:34:23.685882Z",
+  "devices": [
+    {
+      "name": "CPU",
+      "total_memory_gb": "N/A"
+    }
+  ]
+}

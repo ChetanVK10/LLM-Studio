@@ -1,0 +1,9 @@
+{
+  "avg_latency_ms": 320.0,
+  "avg_throughput_tps": 62.5,
+  "mean_rouge1": 0.785,
+  "mean_rouge2": 0.652,
+  "mean_rougeL": 0.748,
+  "mean_exact_match": 0.0,
+  "total_samples": 2
+}

@@ -1,0 +1,9 @@
+{
+  "cuda_available": false,
+  "device_count": 0,
+  "timestamp": "2026-07-20T13:58:54.708393+00:00",
+  "device_name": "CPU",
+  "vram_gb": "N/A",
+  "precision_mode": "FP32 (CPU Mode)",
+  "compute_dtype": "float32"
+}
