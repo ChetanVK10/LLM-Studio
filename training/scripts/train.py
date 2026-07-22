@@ -27,25 +27,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger("trainer")
 
-# PROJECT_ROOT configuration
+# PROJECT_ROOT and RUNTIME_ROOT configuration
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent
+RUNTIME_ROOT = PROJECT_ROOT
 
-# Fallback/override to Colab path if running in Colab and directory exists
+# Fallback/override to Colab paths if running in Colab
 if 'google.colab' in sys.modules:
-    colab_root = Path("/content/drive/MyDrive/LLM-Studio")
-    if colab_root.exists():
-        PROJECT_ROOT = colab_root
+    PROJECT_ROOT = Path("/content/LLM-Studio")
+    RUNTIME_ROOT = Path("/content/drive/MyDrive/LLM-Studio")
 
 # Derive subdirectories
 CONFIG_DIR = PROJECT_ROOT / "training" / "configs"
-DATA_DIR = PROJECT_ROOT / "data"
+TRAINING_DIR = PROJECT_ROOT / "training"
+DATA_DIR = RUNTIME_ROOT / "data"
 RAW_DATA_DIR = DATA_DIR / "raw"
 PROCESSED_DATA_DIR = DATA_DIR / "processed"
-MODELS_DIR = PROJECT_ROOT / "models"
+MODELS_DIR = RUNTIME_ROOT / "models"
 ADAPTER_DIR = MODELS_DIR / "adapters"
 MERGED_MODEL_DIR = MODELS_DIR / "merged"
-TRAINING_DIR = PROJECT_ROOT / "training"
+ARTIFACTS_DIR = RUNTIME_ROOT / "artifacts"
 
 def load_config(config_path: Path) -> Dict[str, Any]:
     """Loads YAML configuration file."""
@@ -95,15 +96,15 @@ def check_gpu() -> Dict[str, Any]:
 def run_data_pipeline_if_needed(config: Dict[str, Any]) -> Tuple[str, str]:
     """Preprocesses raw dataset into train/val JSONL splits if they don't exist."""
     dataset_cfg = config["dataset"]
-    train_path = PROJECT_ROOT / dataset_cfg["train_path"]
-    val_path = PROJECT_ROOT / dataset_cfg["val_path"]
+    train_path = RUNTIME_ROOT / dataset_cfg["train_path"]
+    val_path = RUNTIME_ROOT / dataset_cfg["val_path"]
     
     if train_path.exists() and val_path.exists():
         logger.info(f"Datasets already exist at {train_path} and {val_path}. Skipping preprocessing.")
         return str(train_path), str(val_path)
         
     logger.info("Processed datasets not found. Initializing dataset preprocessing...")
-    raw_path = PROJECT_ROOT / dataset_cfg["raw_path"]
+    raw_path = RUNTIME_ROOT / dataset_cfg["raw_path"]
     if not raw_path.exists():
         logger.error(f"Raw dataset CSV not found at: {raw_path}")
         sys.exit(1)
@@ -205,7 +206,7 @@ def main():
     
     # Create experiments directories
     timestamp = datetime.now().strftime("%Y_%m_%d_%H%M%S")
-    experiment_dir = PROJECT_ROOT / train_cfg["experiments_dir"] / f"experiment_{timestamp}"
+    experiment_dir = RUNTIME_ROOT / train_cfg["experiments_dir"] / f"experiment_{timestamp}"
     experiment_dir.mkdir(parents=True, exist_ok=True)
     
     # Add file logging
@@ -258,7 +259,7 @@ def main():
             json.dump(dummy_metrics, f, indent=2)
             
         # Create dummy checkpoint directory to support subsequent pipelines dry-run testing
-        checkpoint_output_dir = PROJECT_ROOT / train_cfg["output_dir"] / f"run_{timestamp}"
+        checkpoint_output_dir = RUNTIME_ROOT / train_cfg["output_dir"] / f"run_{timestamp}"
         checkpoint_output_dir.mkdir(parents=True, exist_ok=True)
         with open(checkpoint_output_dir / "adapter_config.json", "w") as f:
             f.write('{"peft_type": "LORA", "r": 16, "lora_alpha": 32}')
@@ -282,7 +283,7 @@ def main():
         logger.warning(w)
 
     # Validate configuration schema
-    utils.validate_config_schema(config, PROJECT_ROOT)
+    utils.validate_config_schema(config, PROJECT_ROOT, RUNTIME_ROOT)
 
     # Set global seed
     seed = config["dataset"].get("random_seed", 42)
@@ -378,7 +379,7 @@ def main():
     model.print_trainable_parameters()
 
     # Defensive notebook state validation
-    utils.validate_notebook_state(model, tokenizer, peft_config, config, gpu_info, PROJECT_ROOT)
+    utils.validate_notebook_state(model, tokenizer, peft_config, config, gpu_info, PROJECT_ROOT, RUNTIME_ROOT)
     logger.info("✓ Pre-flight validation checks completed successfully. All components are aligned.")
 
     # Log run metadata JSON
@@ -408,7 +409,7 @@ def main():
     # Resume from checkpoint integrity verification
     resume_checkpoint = None
     if train_cfg.get("resume_from_checkpoint", False):
-        checkpoint_root = PROJECT_ROOT / train_cfg["output_dir"]
+        checkpoint_root = RUNTIME_ROOT / train_cfg["output_dir"]
         runs = [d for d in checkpoint_root.iterdir() if d.is_dir() and d.name.startswith("run_")]
         if runs:
             runs.sort(key=lambda x: x.stat().st_mtime, reverse=True)
@@ -428,7 +429,7 @@ def main():
 
     # Configure SFTTrainer
     logger.info("Preparing SFTTrainer and TrainingArguments...")
-    checkpoint_output_dir = PROJECT_ROOT / train_cfg["output_dir"] / f"run_{timestamp}"
+    checkpoint_output_dir = RUNTIME_ROOT / train_cfg["output_dir"] / f"run_{timestamp}"
 
     # Use eval_strategy instead of deprecated evaluation_strategy (Transformers 5.x compatibility)
     training_args = TrainingArguments(

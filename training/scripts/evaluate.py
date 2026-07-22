@@ -33,25 +33,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger("evaluator")
 
-# PROJECT_ROOT configuration
+# PROJECT_ROOT and RUNTIME_ROOT configuration
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent
+RUNTIME_ROOT = PROJECT_ROOT
 
-# Fallback/override to Colab path if running in Colab and directory exists
+# Fallback/override to Colab paths if running in Colab
 if 'google.colab' in sys.modules:
-    colab_root = Path("/content/drive/MyDrive/LLM-Studio")
-    if colab_root.exists():
-        PROJECT_ROOT = colab_root
+    PROJECT_ROOT = Path("/content/LLM-Studio")
+    RUNTIME_ROOT = Path("/content/drive/MyDrive/LLM-Studio")
 
 # Derive subdirectories
 CONFIG_DIR = PROJECT_ROOT / "training" / "configs"
-DATA_DIR = PROJECT_ROOT / "data"
+TRAINING_DIR = PROJECT_ROOT / "training"
+DATA_DIR = RUNTIME_ROOT / "data"
 RAW_DATA_DIR = DATA_DIR / "raw"
 PROCESSED_DATA_DIR = DATA_DIR / "processed"
-MODELS_DIR = PROJECT_ROOT / "models"
+MODELS_DIR = RUNTIME_ROOT / "models"
 ADAPTER_DIR = MODELS_DIR / "adapters"
 MERGED_MODEL_DIR = MODELS_DIR / "merged"
-TRAINING_DIR = PROJECT_ROOT / "training"
+ARTIFACTS_DIR = RUNTIME_ROOT / "artifacts"
 
 def load_config(config_path: Path) -> Dict[str, Any]:
     with open(config_path, "r") as f:
@@ -277,9 +278,9 @@ def main():
     dataset_cfg = config["dataset"]
     model_cfg = config["model"]
     
-    # 2. Determine paths from PROJECT_ROOT
-    checkpoints_root = PROJECT_ROOT / config["training"]["output_dir"]
-    experiments_root = PROJECT_ROOT / config["training"]["experiments_dir"]
+    # 2. Determine paths from RUNTIME_ROOT
+    checkpoints_root = RUNTIME_ROOT / config["training"]["output_dir"]
+    experiments_root = RUNTIME_ROOT / config["training"]["experiments_dir"]
     
     # Determine adapter path
     adapter_path = args.adapter_path
@@ -290,7 +291,7 @@ def main():
     logger.info(f"Evaluating model adapter at: {adapter_path}")
     
     # Check dataset splits
-    val_jsonl_path = PROJECT_ROOT / dataset_cfg["val_path"]
+    val_jsonl_path = RUNTIME_ROOT / dataset_cfg["val_path"]
     if not val_jsonl_path.exists():
         logger.error(f"Validation dataset file not found: {val_jsonl_path}")
         sys.exit(1)
@@ -373,21 +374,21 @@ def main():
         }
         
     # 4. Save metrics report JSON
-    metrics_path = PROJECT_ROOT / eval_cfg["metrics_report_path"]
+    metrics_path = RUNTIME_ROOT / eval_cfg["metrics_report_path"]
     metrics_path.parent.mkdir(parents=True, exist_ok=True)
     with open(metrics_path, "w") as f:
         json.dump(aggregated, f, indent=2)
     logger.info(f"Aggregated metrics JSON report written to: {metrics_path}")
     
     # Save CSV generations side-by-side
-    pred_csv_path = PROJECT_ROOT / eval_cfg["predictions_csv_path"]
+    pred_csv_path = RUNTIME_ROOT / eval_cfg["predictions_csv_path"]
     df = pd.DataFrame(predictions)
     df.to_csv(pred_csv_path, index=False)
     logger.info(f"Predictions and granular scores written to: {pred_csv_path}")
     
     # 5. Visualizations
-    loss_curve_path = PROJECT_ROOT / eval_cfg["loss_curve_path"]
-    rouge_scores_path = PROJECT_ROOT / eval_cfg["rouge_scores_path"]
+    loss_curve_path = RUNTIME_ROOT / eval_cfg["loss_curve_path"]
+    rouge_scores_path = RUNTIME_ROOT / eval_cfg["rouge_scores_path"]
     
     latest_exp = get_latest_experiment(experiments_root)
     if latest_exp:

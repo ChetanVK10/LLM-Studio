@@ -24,25 +24,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger("exporter")
 
-# PROJECT_ROOT configuration
+# PROJECT_ROOT and RUNTIME_ROOT configuration
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent
+RUNTIME_ROOT = PROJECT_ROOT
 
-# Fallback/override to Colab path if running in Colab and directory exists
+# Fallback/override to Colab paths if running in Colab
 if 'google.colab' in sys.modules:
-    colab_root = Path("/content/drive/MyDrive/LLM-Studio")
-    if colab_root.exists():
-        PROJECT_ROOT = colab_root
+    PROJECT_ROOT = Path("/content/LLM-Studio")
+    RUNTIME_ROOT = Path("/content/drive/MyDrive/LLM-Studio")
 
 # Derive subdirectories
 CONFIG_DIR = PROJECT_ROOT / "training" / "configs"
-DATA_DIR = PROJECT_ROOT / "data"
+TRAINING_DIR = PROJECT_ROOT / "training"
+DATA_DIR = RUNTIME_ROOT / "data"
 RAW_DATA_DIR = DATA_DIR / "raw"
 PROCESSED_DATA_DIR = DATA_DIR / "processed"
-MODELS_DIR = PROJECT_ROOT / "models"
+MODELS_DIR = RUNTIME_ROOT / "models"
 ADAPTER_DIR = MODELS_DIR / "adapters"
 MERGED_MODEL_DIR = MODELS_DIR / "merged"
-TRAINING_DIR = PROJECT_ROOT / "training"
+ARTIFACTS_DIR = RUNTIME_ROOT / "artifacts"
 
 def load_config(config_path: Path) -> Dict[str, Any]:
     with open(config_path, "r") as f:
@@ -75,10 +76,10 @@ def main():
     config = load_config(config_path)
     export_cfg = config["export"]
     
-    # Resolve roots from PROJECT_ROOT
-    checkpoints_root = PROJECT_ROOT / config["training"]["output_dir"]
-    adapters_root = PROJECT_ROOT / export_cfg["adapters_dir"]
-    registry_path = PROJECT_ROOT / export_cfg["registry_path"]
+    # Resolve roots from RUNTIME_ROOT
+    checkpoints_root = RUNTIME_ROOT / config["training"]["output_dir"]
+    adapters_root = RUNTIME_ROOT / export_cfg["adapters_dir"]
+    registry_path = RUNTIME_ROOT / export_cfg["registry_path"]
     
     # 2. Resolve source checkpoint
     src_checkpoint = args.checkpoint

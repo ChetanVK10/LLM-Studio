@@ -154,8 +154,10 @@ def resolve_precision_mode(train_cfg: Dict[str, Any], gpu_info: Dict[str, Any]) 
 
     return False, False, torch.float32, "FP32 (No Mixed Precision)"
 
-def validate_config_schema(config: Dict[str, Any], project_root: Path) -> None:
+def validate_config_schema(config: Dict[str, Any], project_root: Path, runtime_root: Path = None) -> None:
     """Performs defensive validation on top-level keys, range constraints, and directory paths."""
+    target_runtime_root = runtime_root if runtime_root is not None else project_root
+
     # 1. Required Top-Level Sections
     required_sections = ["model", "dataset", "lora", "training"]
     for section in required_sections:
@@ -217,10 +219,15 @@ def validate_config_schema(config: Dict[str, Any], project_root: Path) -> None:
     assert isinstance(train_cfg["learning_rate"], (int, float)) and train_cfg["learning_rate"] > 0.0, (
         f"Configuration Error: 'training.learning_rate' must be a positive float (got {train_cfg['learning_rate']})."
     )
+
+    # Verify source directories exist under project_root
+    for source_folder in ["training", "training/configs", "training/scripts"]:
+        src_path = project_root / source_folder
+        assert src_path.exists(), f"Configuration Error: Missing source folder under PROJECT_ROOT: '{src_path}'."
     
-    # 6. Verify filesystem write accessibility
+    # 6. Verify filesystem write accessibility and auto-create runtime directories under runtime_root
     for folder_key in ["output_dir", "experiments_dir"]:
-        dir_path = project_root / train_cfg[folder_key]
+        dir_path = target_runtime_root / train_cfg[folder_key]
         try:
             dir_path.mkdir(parents=True, exist_ok=True)
         except Exception as e:
@@ -341,15 +348,17 @@ def validate_notebook_state(
     peft_config,
     config: Dict[str, Any],
     gpu_info: Dict[str, Any],
-    project_root: Path
+    project_root: Path,
+    runtime_root: Path = None
 ) -> None:
     """Defensively validates all state variables, path existences, and precision constraints before training starts."""
     from peft import PeftModel
+    target_runtime_root = runtime_root if runtime_root is not None else project_root
     
     # 1. Validate files
     dataset_cfg = config.get("dataset", {})
-    train_path = project_root / dataset_cfg.get("train_path", "")
-    val_path = project_root / dataset_cfg.get("val_path", "")
+    train_path = target_runtime_root / dataset_cfg.get("train_path", "")
+    val_path = target_runtime_root / dataset_cfg.get("val_path", "")
     
     try:
         validate_dataset_schema(train_path)

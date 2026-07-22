@@ -1,0 +1,3 @@
+2026-07-22 13:54:53,663 [INFO] Experiment tracking directory initialized: D:\Projects\LLM-Studio\artifacts\experiments\experiment_2026_07_22_135453
+2026-07-22 13:55:40,050 [ERROR] Missing fine-tuning library dependencies. Run 'pip install -r training/requirements.txt'. Error: No module named 'peft'
+2026-07-22 13:55:40,053 [WARNING] Dry run completed: Config and data validated successfully, but execution skipped due to missing dependencies.
