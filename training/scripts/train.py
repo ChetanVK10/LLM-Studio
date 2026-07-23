@@ -238,7 +238,12 @@ def main():
             TrainingArguments,
             TrainerCallback
         )
-        from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+        from peft import (
+            LoraConfig,
+            get_peft_model,
+            prepare_model_for_kbit_training,
+            cast_mixed_precision_params
+        )
         from trl import SFTTrainer
         from datasets import load_dataset
         
@@ -328,8 +333,18 @@ def main():
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
 
+    def log_stage_diagnostics(stage_name):
+        cfg_dtype = getattr(getattr(model, "config", None), "torch_dtype", None)
+        first_p = next(model.parameters(), None)
+        first_p_dtype = first_p.dtype if first_p is not None else "N/A"
+        first_lora_p = next((p for n, p in model.named_parameters() if p.requires_grad and "lora_" in n), None)
+        first_lora_dtype = first_lora_p.dtype if first_lora_p is not None else "N/A"
+        logger.info(f"=== Stage Diagnostic: {stage_name} ===")
+        logger.info(f"  model.config.torch_dtype          : {cfg_dtype}")
+        logger.info(f"  first model parameter dtype       : {first_p_dtype}")
+        logger.info(f"  first trainable LoRA param dtype  : {first_lora_dtype}")
+
     logger.info(f"Loading base causal model: {base_model_name}")
-    # Load model with correct precision parameters (torch_dtype)
     model = AutoModelForCausalLM.from_pretrained(
         base_model_name,
         quantization_config=bnb_config,
@@ -337,6 +352,7 @@ def main():
         trust_remote_code=model_cfg.get("trust_remote_code", True),
         torch_dtype=compute_dtype
     )
+    log_stage_diagnostics("Immediately after from_pretrained()")
 
     if len(tokenizer) != model.get_input_embeddings().num_embeddings:
         model.resize_token_embeddings(len(tokenizer))
@@ -347,34 +363,38 @@ def main():
         model.gradient_checkpointing_enable()
         model.config.use_cache = False
 
-    # Setup PEFT adapter LoRA config
+    # Setup PEFT adapter LoRA config (PEFT 0.19.1 specification)
     logger.info("Configuring PEFT LoRA adapter settings...")
-    peft_config = LoraConfig(
-        r=lora_cfg["r"],
-        lora_alpha=lora_cfg["lora_alpha"],
-        target_modules=lora_cfg["target_modules"],
-        lora_dropout=lora_cfg["lora_dropout"],
-        bias=lora_cfg["bias"],
-        task_type=lora_cfg["task_type"]
-    )
+    import inspect
+    lora_kwargs = {
+        "r": lora_cfg["r"],
+        "lora_alpha": lora_cfg["lora_alpha"],
+        "target_modules": lora_cfg["target_modules"],
+        "lora_dropout": lora_cfg["lora_dropout"],
+        "bias": lora_cfg["bias"],
+        "task_type": lora_cfg["task_type"]
+    }
+    sig = inspect.signature(LoraConfig.__init__)
+    if "autocast_adapter_dtype" in sig.parameters:
+        lora_kwargs["autocast_adapter_dtype"] = False
+        logger.info("PEFT LoraConfig parameter 'autocast_adapter_dtype' detected. Setting autocast_adapter_dtype=False.")
 
+    peft_config = LoraConfig(**lora_kwargs)
     model = get_peft_model(model, peft_config)
+    log_stage_diagnostics("Immediately after get_peft_model()")
 
-    # 1. LoRA PARAMETER DTYPE BEFORE ENFORCEMENT
-    logger.info("=== LoRA Parameter Dtypes BEFORE Enforcement ===")
-    for name, param in model.named_parameters():
-        if param.requires_grad and "lora_" in name:
-            logger.info(f"{name}: {param.dtype}")
+    # Official PEFT 0.19.1 mixed precision parameter casting utility
+    try:
+        from peft import cast_mixed_precision_params
+        cast_mixed_precision_params(model, dtype=compute_dtype)
+        logger.info(f"Executed PEFT cast_mixed_precision_params(model, dtype={compute_dtype}).")
+    except ImportError:
+        logger.warning("peft.cast_mixed_precision_params not available in current environment; using parameter dtype alignment fallback.")
+        for name, param in model.named_parameters():
+            if param.requires_grad and param.dtype != compute_dtype:
+                param.data = param.data.to(compute_dtype)
 
-    # 2. LOADER DTYPE ENFORCEMENT VERIFICATION
-    for name, param in model.named_parameters():
-        if param.requires_grad and param.dtype != compute_dtype:
-            param.data = param.data.to(compute_dtype)
-
-    logger.info("=== LoRA Parameter Dtypes AFTER Enforcement ===")
-    for name, param in model.named_parameters():
-        if param.requires_grad and "lora_" in name:
-            logger.info(f"{name}: {param.dtype}")
+    log_stage_diagnostics("Immediately after cast_mixed_precision_params()")
 
     model.print_trainable_parameters()
 
