@@ -1,0 +1,9 @@
+--- trl/trainer/sft_trainer.py.orig
++++ trl/trainer/sft_trainer.py
+@@ -1124,5 +1124,5 @@
+         # passing `autocast_adapter_dtype=False` to `get_peft_model`, but this option is not yet supported for
+         # quantized models. See: https://github.com/huggingface/peft/issues/2889
+-        if _is_quantized_model:
++        if _is_quantized_model and getattr(args, "bf16", False):
+             for param in model.parameters():
+                 if param.requires_grad:
