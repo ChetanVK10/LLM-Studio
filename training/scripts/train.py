@@ -538,7 +538,7 @@ def main():
 
     # TRL Precision Compatibility Guard
     from training.compatibility import apply_trl_precision_fix
-    apply_trl_precision_fix(trainer=trainer, target_dtype=compute_dtype, verbose=True)
+    apply_trl_precision_fix(trainer=trainer, verbose=True)
     inspect_first_lora("Stage 6: Immediately after apply_trl_precision_fix()", training_args, trainer)
 
     # 3. ACCELERATE MIXED PRECISION STATE

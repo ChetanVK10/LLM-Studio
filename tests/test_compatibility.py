@@ -38,7 +38,7 @@ def test_validate_environment_invalid_trainer():
 
 
 def test_precision_fix_converts_bfloat16_lora_params():
-    """Test that bfloat16 trainable parameters are converted to target dtype (float16)."""
+    """Test that bfloat16 trainable parameters are automatically converted to float32 master weights for FP16."""
     model = MockModel(is_4bit=True)
     # Simulate TRL mutation to bfloat16
     model.lora_A.data = model.lora_A.data.to(torch.bfloat16)
@@ -46,13 +46,13 @@ def test_precision_fix_converts_bfloat16_lora_params():
 
     trainer = MockTrainer(model, fp16=True, bf16=False)
 
-    metrics = apply_trl_precision_fix(trainer, target_dtype=torch.float16, verbose=False)
+    metrics = apply_trl_precision_fix(trainer, verbose=False)
 
     assert metrics["fix_applied"] is True
     assert metrics["converted"] == 2
     assert metrics["status"] == "PASS"
-    assert model.lora_A.dtype == torch.float16
-    assert model.lora_B.dtype == torch.float16
+    assert model.lora_A.dtype == torch.float32
+    assert model.lora_B.dtype == torch.float32
 
 
 def test_precision_fix_preserves_frozen_base_weights():
@@ -65,22 +65,22 @@ def test_precision_fix_preserves_frozen_base_weights():
     model.lora_B.data = model.lora_B.data.to(torch.bfloat16)
 
     trainer = MockTrainer(model, fp16=True, bf16=False)
-    apply_trl_precision_fix(trainer, target_dtype=torch.float16, verbose=False)
+    apply_trl_precision_fix(trainer, verbose=False)
 
     assert model.base_layer.weight.dtype == base_dtype_before
     assert model.base_layer.weight.requires_grad is False
 
 
 def test_auto_bypass_when_params_already_correct():
-    """Test auto-bypass when parameters are already in target precision (e.g. future TRL release)."""
+    """Test auto-bypass when parameters are already in target precision (e.g. float32)."""
     model = MockModel(is_4bit=True)
-    # Already float16
-    model.lora_A.data = model.lora_A.data.to(torch.float16)
-    model.lora_B.data = model.lora_B.data.to(torch.float16)
+    # Already float32
+    model.lora_A.data = model.lora_A.data.to(torch.float32)
+    model.lora_B.data = model.lora_B.data.to(torch.float32)
 
     trainer = MockTrainer(model, fp16=True, bf16=False)
 
-    metrics = apply_trl_precision_fix(trainer, target_dtype=torch.float16, verbose=False)
+    metrics = apply_trl_precision_fix(trainer, verbose=False)
 
     assert metrics["fix_applied"] is False
     assert metrics["converted"] == 0

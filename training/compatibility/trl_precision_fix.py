@@ -21,13 +21,13 @@ logger = logging.getLogger("trainer.compatibility")
 
 def validate_environment(
     trainer: Any,
-    target_dtype: torch.dtype
+    target_dtype: Optional[torch.dtype] = None
 ) -> Dict[str, Any]:
     """Inspects system hardware, TRL version, and model precision state.
 
     Args:
         trainer: An instantiated SFTTrainer or Hugging Face Trainer.
-        target_dtype: Target torch.dtype for trainable parameters (e.g., torch.float16 or torch.float32).
+        target_dtype: Target torch.dtype for trainable parameters. Defaults to torch.float32 for FP16 mixed precision.
 
     Returns:
         Dict containing environment profile metrics and a `fix_required` boolean flag.
@@ -41,6 +41,21 @@ def validate_environment(
 
     model = trainer.model
 
+    # Training arguments inspection
+    args = getattr(trainer, "args", None)
+    cfg_fp16 = getattr(args, "fp16", False) if args else False
+    cfg_bf16 = getattr(args, "bf16", False) if args else False
+
+    # Single Source of Truth for Target Dtype:
+    # 1. If explicitly provided by caller, honor it.
+    # 2. If bf16=True in training args, target torch.bfloat16.
+    # 3. If fp16=True or default mixed precision, PyTorch GradScaler requires FP32 master weights (torch.float32).
+    if target_dtype is None:
+        if cfg_bf16:
+            target_dtype = torch.bfloat16
+        else:
+            target_dtype = torch.float32
+
     # Hardware & CUDA detection
     cuda_available = torch.cuda.is_available()
     gpu_name = "N/A"
@@ -52,11 +67,6 @@ def validate_environment(
         cap = torch.cuda.get_device_capability(0)
         compute_capability = f"{cap[0]}.{cap[1]}"
         bf16_supported = torch.cuda.is_bf16_supported()
-
-    # Training arguments inspection
-    args = getattr(trainer, "args", None)
-    cfg_fp16 = getattr(args, "fp16", False) if args else False
-    cfg_bf16 = getattr(args, "bf16", False) if args else False
 
     if cfg_bf16 and not bf16_supported:
         raise RuntimeError(
@@ -74,6 +84,7 @@ def validate_environment(
     total_trainable = 0
     bf16_trainable = 0
     target_matched_trainable = 0
+    deviating_trainable = 0
 
     for param in model.parameters():
         if param.requires_grad:
@@ -82,12 +93,13 @@ def validate_environment(
                 bf16_trainable += 1
             if param.dtype == target_dtype:
                 target_matched_trainable += 1
+            else:
+                deviating_trainable += 1
 
     # Evaluate whether fix is required:
-    # 1. Fix is required if we are using FP16/FP32 on a GPU without native BF16 (or non-BF16 mode)
-    #    AND there exist trainable params currently in bfloat16 (mutated by TRL).
-    # 2. If a future TRL release removes the force-cast, bf16_trainable will be 0, so fix_required evaluates to False.
-    fix_required = (not cfg_bf16) and (bf16_trainable > 0) and (target_dtype != torch.bfloat16)
+    # Fix is required if there are trainable parameters whose precision deviates from target_dtype.
+    # If a future TRL release fixes line 1130, deviating_trainable will be 0, so fix_required automatically becomes False.
+    fix_required = (not cfg_bf16) and (deviating_trainable > 0)
 
     return {
         "trl_version": TRL_VERSION,
@@ -108,23 +120,24 @@ def validate_environment(
 
 def apply_trl_precision_fix(
     trainer: Any,
-    target_dtype: torch.dtype,
+    target_dtype: Optional[torch.dtype] = None,
     verbose: bool = True
 ) -> Dict[str, Any]:
     """Applies the precision alignment guard to trainer.model post-SFTTrainer initialization.
 
     Converts trainable parameters (requires_grad=True) that were mutated to bfloat16
-    back to target_dtype (e.g., float16 or float32), ensuring GradScaler stability.
+    or set to float16 to full precision (torch.float32), ensuring PyTorch GradScaler stability.
 
     Args:
         trainer: Instantiated SFTTrainer object before trainer.train() is called.
-        target_dtype: Desired target compute precision for trainable parameters (e.g., torch.float16 or torch.float32).
+        target_dtype: Desired target compute precision for trainable parameters. Defaults to torch.float32 for FP16.
         verbose: If True, prints a formatted diagnostic report to stdout and logger.
 
     Returns:
         Dict containing scan metrics: total_trainable, converted, already_correct, skipped, status.
     """
     profile = validate_environment(trainer, target_dtype)
+    target_dtype = profile["target_dtype"]
     model = trainer.model
 
     metrics = {
