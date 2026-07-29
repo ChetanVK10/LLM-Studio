@@ -333,16 +333,47 @@ def main():
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
 
-    def log_stage_diagnostics(stage_name):
-        cfg_dtype = getattr(getattr(model, "config", None), "torch_dtype", None)
-        first_p = next(model.parameters(), None)
-        first_p_dtype = first_p.dtype if first_p is not None else "N/A"
-        first_lora_p = next((p for n, p in model.named_parameters() if p.requires_grad and "lora_" in n), None)
-        first_lora_dtype = first_lora_p.dtype if first_lora_p is not None else "N/A"
-        logger.info(f"=== Stage Diagnostic: {stage_name} ===")
-        logger.info(f"  model.config.torch_dtype          : {cfg_dtype}")
-        logger.info(f"  first model parameter dtype       : {first_p_dtype}")
-        logger.info(f"  first trainable LoRA param dtype  : {first_lora_dtype}")
+    def inspect_first_lora(stage_name, training_args=None, trainer_ref=None):
+        import torch
+        first_lora_name = "N/A"
+        first_lora_param = None
+        for name, param in model.named_parameters():
+            if param.requires_grad and "lora_" in name:
+                first_lora_name = name
+                first_lora_param = param
+                break
+
+        logger.info(f"\n==========================================")
+        logger.info(f"DIAGNOSTIC STAGE: {stage_name}")
+        logger.info(f"==========================================")
+        logger.info(f"Parameter Name         : {first_lora_name}")
+        if first_lora_param is not None:
+            logger.info(f"Parameter Dtype        : {first_lora_param.dtype}")
+            logger.info(f"Parameter Device       : {first_lora_param.device}")
+            logger.info(f"requires_grad          : {first_lora_param.requires_grad}")
+            logger.info(f"id(parameter)          : {id(first_lora_param)}")
+            logger.info(f"parameter.data_ptr()   : {first_lora_param.data_ptr()}")
+        else:
+            logger.info("Parameter Info         : No trainable LoRA parameters found yet.")
+
+        cfg_dtype = getattr(model.config, "torch_dtype", None) if hasattr(model, "config") else "N/A"
+        logger.info(f"model.config.torch_dtype: {cfg_dtype}")
+        logger.info(f"compute_dtype          : {compute_dtype}")
+
+        fp16_val = getattr(training_args, "fp16", "N/A") if training_args is not None else "N/A"
+        bf16_val = getattr(training_args, "bf16", "N/A") if training_args is not None else "N/A"
+        logger.info(f"TrainingArguments.fp16 : {fp16_val}")
+        logger.info(f"TrainingArguments.bf16 : {bf16_val}")
+
+        if trainer_ref is not None:
+            logger.info(f"trainer.accelerator type: {type(trainer_ref.accelerator)}")
+            if hasattr(trainer_ref, "accelerator") and hasattr(trainer_ref.accelerator, "state"):
+                logger.info(f"mixed_precision        : {trainer_ref.accelerator.state.mixed_precision}")
+                logger.info(f"native_amp             : {getattr(trainer_ref.accelerator, 'native_amp', 'N/A')}")
+                logger.info(f"scaler                 : {getattr(trainer_ref.accelerator, 'scaler', 'N/A')}")
+            logger.info(f"autocast enabled       : {torch.is_autocast_enabled()}")
+            if torch.cuda.is_available():
+                logger.info(f"autocast GPU dtype     : {torch.get_autocast_gpu_dtype()}")
 
     logger.info(f"Loading base causal model: {base_model_name}")
     model = AutoModelForCausalLM.from_pretrained(
@@ -352,7 +383,7 @@ def main():
         trust_remote_code=model_cfg.get("trust_remote_code", True),
         torch_dtype=compute_dtype
     )
-    log_stage_diagnostics("Immediately after from_pretrained()")
+    inspect_first_lora("Stage 1: Immediately after from_pretrained()")
 
     if len(tokenizer) != model.get_input_embeddings().num_embeddings:
         model.resize_token_embeddings(len(tokenizer))
@@ -360,6 +391,7 @@ def main():
     if gpu_info["cuda_available"] and quant_type in ["4bit", "8bit"]:
         logger.info("Preparing model for kbit training...")
         model = prepare_model_for_kbit_training(model)
+        inspect_first_lora("Stage 2: Immediately after prepare_model_for_kbit_training()")
         model.gradient_checkpointing_enable()
         model.config.use_cache = False
 
@@ -381,7 +413,7 @@ def main():
 
     peft_config = LoraConfig(**lora_kwargs)
     model = get_peft_model(model, peft_config)
-    log_stage_diagnostics("Immediately after get_peft_model()")
+    inspect_first_lora("Stage 3: Immediately after get_peft_model()")
 
     # Official PEFT 0.19.1 mixed precision parameter casting utility
     try:
@@ -394,7 +426,7 @@ def main():
             if param.requires_grad and param.dtype != compute_dtype:
                 param.data = param.data.to(compute_dtype)
 
-    log_stage_diagnostics("Immediately after cast_mixed_precision_params()")
+    inspect_first_lora("Stage 4: Immediately after cast_mixed_precision_params()")
 
     model.print_trainable_parameters()
 
@@ -502,6 +534,12 @@ def main():
         callbacks=[metrics_callback],
         **sft_kwargs
     )
+    inspect_first_lora("Stage 5: Immediately after trainer = SFTTrainer(...)", training_args, trainer)
+
+    # TRL Precision Compatibility Guard
+    from training.compatibility import apply_trl_precision_fix
+    apply_trl_precision_fix(trainer=trainer, target_dtype=compute_dtype, verbose=True)
+    inspect_first_lora("Stage 6: Immediately after apply_trl_precision_fix()", training_args, trainer)
 
     # 3. ACCELERATE MIXED PRECISION STATE
     logger.info("=== Accelerate State ===")
@@ -525,9 +563,10 @@ def main():
             logger.info(f"Unable to query autocast dtype: {e}")
 
     logger.info("Executing training loop...")
+    inspect_first_lora("Stage 6: Immediately before trainer.train()", training_args, trainer)
     train_result = trainer.train(resume_from_checkpoint=resume_checkpoint)
 
-    # Save training metrics
+    # Save training metrics 
     metrics = train_result.metrics
     logger.info(f"Training completed successfully! Train metrics: {metrics}")
     
